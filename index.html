@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pentagram.foo - Anonymous P2P Chat</title>
+    <meta name="description" content="Anonymous serverless WebRTC chat with group communications">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/pentagram/dist/assets/favicon-CfVaOuKG.svg">
+    
+    <!-- App Styles -->
+    
+    <!-- App Scripts -->
+  <script type="module" crossorigin src="/pentagram/dist/assets/index-kb8cbM2U.js"></script>
+  <link rel="stylesheet" crossorigin href="/pentagram/dist/assets/index-CuqIWhdp.css">
+<link rel="manifest" href="/pentagram/dist/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/pentagram/dist/registerSW.js"></script></head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Main App Container -->
+    <div x-data="pentagramApp" class="min-h-screen">
+        <!-- Connection Status Indicator -->
+        <div x-data="connectionStatus" class="fixed top-4 right-4 z-50">
+            <div class="bg-gray-800 rounded-lg p-3 shadow-lg">
+                <div class="flex items-center space-x-2">
+                    <div class="w-2 h-2 rounded-full" 
+                         :class="{
+                           'bg-gray-500': connectionQuality === 'unknown',
+                           'bg-red-500': connectionQuality === 'poor', 
+                           'bg-yellow-500': connectionQuality === 'fair',
+                           'bg-blue-500': connectionQuality === 'good',
+                           'bg-green-500': connectionQuality === 'excellent'
+                         }"></div>
+                    <span class="text-sm" x-text="`P2P: ${connectionQuality}`"></span>
+                </div>
+                
+                <!-- Tracker Details -->
+                <template x-if="trackers.length">
+                    <div class="mt-2 text-xs text-gray-400">
+                        <div x-text="`${trackers.filter(t => t.connected).length}/${trackers.length} trackers`"></div>
+                    </div>
+                </template>
+            </div>
+        </div>
+        
+        <!-- Connected State: Chat Interface -->
+        <template x-if="isConnected">
+            <div class="flex h-screen">
+                <!-- Chat Area -->
+                <div class="flex-1 flex flex-col">
+                    <!-- Room Header -->
+                    <div class="bg-gray-800 p-4 border-b border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h2 class="text-lg font-semibold" x-text="`Room: ${roomId}`"></h2>
+                                <p class="text-sm text-gray-400" x-text="`Connected as ${username}`"></p>
+                            </div>
+                            <button @click="leaveRoom()"
+                                    class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm">
+                                Leave Room
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Messages Area -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-3" id="messages-container">
+                        <template x-for="message in messages" :key="message.id">
+                            <div class="flex items-start space-x-3" 
+                                 :class="message.self ? 'flex-row-reverse space-x-reverse' : ''">
+                                <!-- Avatar -->
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                                     :class="message.self ? 'bg-purple-600' : 'bg-blue-600'"
+                                     x-text="message.username.substring(0, 2).toUpperCase()"></div>
+                                
+                                <!-- Message Content -->
+                                <div class="flex-1 max-w-xs lg:max-w-md">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <span class="text-sm font-medium" x-text="message.username"></span>
+                                        <span class="text-xs text-gray-500" 
+                                              x-text="new Date(message.timestamp).toLocaleTimeString()"></span>
+                                        <!-- Verification Badge -->
+                                        <template x-if="message.verified">
+                                            <svg class="w-3 h-3 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                            </svg>
+                                        </template>
+                                    </div>
+                                    <div class="p-3 rounded-lg text-sm break-words" 
+                                         :class="message.self ? 'bg-purple-600' : 'bg-gray-700'"
+                                         x-text="message.content"></div>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <!-- Empty State -->
+                        <template x-if="messages.length === 0">
+                            <div class="text-center text-gray-500 mt-8">
+                                <p>No messages yet. Start the conversation!</p>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <!-- Message Input -->
+                    <div class="p-4 bg-gray-800 border-t border-gray-700">
+                        <div class="flex space-x-3">
+                            <input type="text" 
+                                   x-model="messageInput"
+                                   @keydown.enter="sendChatMessage(messageInput); messageInput = ''"
+                                   @input="handleTyping"
+                                   placeholder="Type a message..."
+                                   class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                            <button @click="sendChatMessage(messageInput); messageInput = ''"
+                                    :disabled="!messageInput.trim() || connectionStatus === 'connecting'"
+                                    class="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 px-6 py-2 rounded-lg font-medium transition-colors">
+                                Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Peer List Sidebar -->
+                <div class="w-64 bg-gray-800 border-l border-gray-700 p-4">
+                    <h3 class="text-lg font-semibold mb-4">Connected Peers</h3>
+                    
+                    <!-- Self -->
+                    <div class="mb-4">
+                        <div class="flex items-center space-x-3 p-2 bg-purple-700 rounded-lg"
+                             :class="isVoiceActive && isSpeaking && !isMuted ? 'ring-2 ring-green-400 bg-purple-600' : ''">
+                            <div class="w-2 h-2 bg-purple-400 rounded-full"
+                                 :class="isVoiceActive && isSpeaking && !isMuted ? 'bg-green-400 animate-pulse' : ''"></div>
+                            <span class="text-sm font-medium flex-1" x-text="`${username} (you)`"></span>
+                            
+                            <!-- Voice Status for Self -->
+                            <div class="flex items-center space-x-1">
+                                <template x-if="isVoiceActive">
+                                    <div class="flex items-center space-x-1">
+                                        <template x-if="isMuted">
+                                            <span class="text-xs">🎤🚫</span>
+                                        </template>
+                                        <template x-if="!isMuted && isSpeaking">
+                                            <div class="flex items-center space-x-1">
+                                                <span class="text-xs animate-pulse">🎤📢</span>
+                                                <span class="text-xs bg-green-500 text-white px-1 py-0.5 rounded font-bold animate-pulse">TALKING</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="!isMuted && !isSpeaking">
+                                            <span class="text-xs opacity-60">🎤</span>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Other Peers -->
+                    <div class="space-y-2">
+                        <template x-for="peer in Array.from(peers.values())" :key="peer.id">
+                            <div class="flex items-center space-x-3 p-2 bg-gray-700 rounded-lg transition-all duration-200"
+                                 :class="peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted ? 'ring-2 ring-green-400 bg-gray-600' : ''">
+                                <!-- Connection Status Dot -->
+                                <div class="w-2 h-2 bg-green-500 rounded-full"
+                                     :class="peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted ? 'bg-green-400 animate-pulse' : ''"></div>
+                                
+                                <!-- Username -->
+                                <span class="text-sm flex-1" x-text="peer.username || peer.id.substring(0, 8)"></span>
+                                
+                                <!-- Voice Activity Indicator -->
+                                <template x-if="peer.voiceStatus?.isActive">
+                                    <div class="flex items-center space-x-1">
+                                        <template x-if="peer.voiceStatus.isMuted">
+                                            <span class="text-xs">🎤🚫</span>
+                                        </template>
+                                        <template x-if="!peer.voiceStatus.isMuted && peer.voiceStatus.isSpeaking">
+                                            <div class="flex items-center space-x-1">
+                                                <span class="text-xs animate-pulse">🎤📢</span>
+                                                <span class="text-xs bg-green-500 text-white px-1 py-0.5 rounded font-bold animate-pulse">TALKING</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="!peer.voiceStatus.isMuted && !peer.voiceStatus.isSpeaking">
+                                            <span class="text-xs opacity-60">🎤</span>
+                                        </template>
+                                    </div>
+                                </template>
+                                
+                                <!-- Typing Indicator -->
+                                <template x-if="peer.isTyping && !(peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted)">
+                                    <span class="text-xs text-gray-400 animate-pulse">typing...</span>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <!-- Empty Peer State -->
+                    <template x-if="peers.size === 0">
+                        <div class="text-center text-gray-500 mt-8">
+                            <p class="text-sm">Waiting for peers...</p>
+                        </div>
+                    </template>
+                    
+                    <!-- Voice Controls -->
+                    <div class="mt-6 pt-4 border-t border-gray-700" x-data="voiceControls">
+                        <h4 class="text-sm font-medium mb-2">Voice Chat</h4>
+                        
+                        <!-- Voice Error -->
+                        <template x-if="voiceError">
+                            <div class="mb-2 p-2 bg-red-900 border border-red-600 rounded text-xs text-red-200">
+                                <span x-text="voiceError"></span>
+                            </div>
+                        </template>
+                        
+                        <!-- Main Voice Button -->
+                        <button @click="toggleVoice()" 
+                                :disabled="needsPermission && permissionState === 'denied'"
+                                class="w-full p-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2"
+                                :class="voiceButtonColorClass">
+                            <span x-text="voiceButtonIcon"></span>
+                            <span class="text-sm" x-text="isVoiceActive ? (isMuted ? 'Unmute' : 'Mute') : 'Start Voice'"></span>
+                        </button>
+                        
+                        <!-- Voice Activity Indicator -->
+                        <template x-if="isVoiceActive">
+                            <div class="mt-2">
+                                <!-- Speaking Status Badge -->
+                                <template x-if="!isMuted && isSpeaking">
+                                    <div class="mb-2 text-center">
+                                        <span class="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold animate-pulse">
+                                            🎤 TALKING
+                                        </span>
+                                    </div>
+                                </template>
+                                
+                                <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+                                    <span>Volume</span>
+                                    <span x-text="`${currentVolume}%`"></span>
+                                </div>
+                                <div class="w-full bg-gray-700 rounded-full h-2">
+                                    <div class="h-2 rounded-full transition-all duration-100"
+                                         :class="isSpeaking ? 'bg-green-500 animate-pulse' : 'bg-blue-500'"
+                                         :style="`width: ${volumeBarWidth}%`"></div>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <!-- Device Selector -->
+                        <template x-if="isVoiceActive && availableDevices.length > 1">
+                            <div class="mt-3">
+                                <button @click="showDeviceSelector = !showDeviceSelector"
+                                        class="w-full text-xs text-gray-400 hover:text-gray-300 p-2 bg-gray-700 rounded">
+                                    <span x-text="deviceSelectorText"></span>
+                                </button>
+                                
+                                <div x-show="showDeviceSelector" x-collapse class="mt-2 space-y-1">
+                                    <template x-for="device in availableDevices" :key="device.deviceId">
+                                        <button @click="switchAudioDevice(device.deviceId)"
+                                                class="w-full text-left text-xs p-2 hover:bg-gray-600 rounded"
+                                                :class="currentDevice === device.deviceId ? 'bg-purple-600' : 'bg-gray-700'">
+                                            <span x-text="device.label"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <!-- Permission Notice -->
+                        <template x-if="needsPermission">
+                            <div class="mt-2 text-xs text-gray-400 text-center">
+                                <p>Microphone access required for voice chat</p>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <!-- Share Room -->
+                    <div class="mt-6 pt-4 border-t border-gray-700">
+                        <h4 class="text-sm font-medium mb-2">Share Room</h4>
+                        <button @click="copyRoomLink()"
+                                class="w-full bg-gray-700 hover:bg-gray-600 p-2 rounded text-sm transition-colors">
+                            📋 Copy Room Link
+                        </button>
+                    </div>
+                    
+                    <!-- Identity Info -->
+                    <div class="mt-6 pt-4 border-t border-gray-700" x-data="{ showIdentity: false }">
+                        <button @click="showIdentity = !showIdentity" 
+                                class="flex items-center justify-between w-full text-sm font-medium mb-2">
+                            <span>🔐 Identity</span>
+                            <svg class="w-4 h-4 transition-transform" :class="showIdentity ? 'rotate-180' : ''" 
+                                 fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                        </button>
+                        
+                        <div x-show="showIdentity" x-collapse>
+                            <template x-if="getIdentityInfo()">
+                                <div class="space-y-2 text-xs text-gray-400">
+                                    <div>
+                                        <span class="font-medium">ID:</span>
+                                        <span x-text="getIdentityInfo()?.fingerprint"></span>
+                                    </div>
+                                    <div>
+                                        <span class="font-medium">Created:</span>
+                                        <span x-text="getIdentityInfo()?.created"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <div class="mt-3 space-y-2">
+                                <button @click="exportIdentity()"
+                                        class="w-full bg-blue-700 hover:bg-blue-600 p-2 rounded text-xs transition-colors">
+                                    💾 Export Identity
+                                </button>
+                                
+                                <div class="relative">
+                                    <input type="file" 
+                                           accept=".json"
+                                           @change="importIdentity($event.target.files[0]); $event.target.value = ''"
+                                           class="absolute inset-0 opacity-0 cursor-pointer">
+                                    <button class="w-full bg-green-700 hover:bg-green-600 p-2 rounded text-xs transition-colors">
+                                        📁 Import Identity
+                                    </button>
+                                </div>
+                                
+                                <button @click="clearData()"
+                                        class="w-full bg-red-700 hover:bg-red-600 p-2 rounded text-xs transition-colors">
+                                    🗑️ Clear All Data
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+        
+        <!-- Disconnected State: Room Setup -->
+        <template x-if="!isConnected">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="max-w-md w-full">
+                    <!-- App Header -->
+                    <div class="text-center mb-8">
+                        <h1 class="text-4xl font-bold mb-2">Pentagram.foo</h1>
+                        <p class="text-gray-400">Anonymous P2P Chat via BitTorrent</p>
+                        <div class="mt-2 text-sm text-gray-500">
+                            🔒 End-to-end encrypted • 🌐 Serverless • 👻 Anonymous
+                        </div>
+                    </div>
+                    
+                    <!-- Setup Form -->
+                    <div class="bg-gray-800 rounded-lg p-6 shadow-lg">
+                        <div class="space-y-4">
+                            <!-- Username -->
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Username</label>
+                                <input type="text" 
+                                       x-model="username"
+                                       placeholder="Choose username"
+                                       maxlength="20"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                            </div>
+                            
+                            <!-- Room Name -->
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Room Name</label>
+                                <input type="text" 
+                                       x-model="roomId"
+                                       placeholder="Enter room name"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                            </div>
+                            
+                            <!-- Room Password -->
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Password (Optional)</label>
+                                <input type="password" 
+                                       x-model="roomPassword"
+                                       placeholder="Room password for extra security"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                            </div>
+                            
+                            <!-- Join Button -->
+                            <button @click="joinRoom()"
+                                    :disabled="!username.trim() || !roomId.trim() || connectionStatus === 'connecting'"
+                                    class="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-3 rounded-lg font-medium transition-colors">
+                                <span x-show="connectionStatus !== 'connecting'">🚀 Join Room</span>
+                                <span x-show="connectionStatus === 'connecting'">🔄 Connecting...</span>
+                            </button>
+                            
+                            <!-- Connection Status -->
+                            <template x-if="connectionStatus === 'connecting'">
+                                <div class="text-center text-sm text-gray-400">
+                                    <p>Connecting to BitTorrent trackers...</p>
+                                    <p class="text-xs mt-1">This may take 10-30 seconds</p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Rooms -->
+                    <template x-if="recentRooms.length > 0">
+                        <div class="mt-6">
+                            <h3 class="text-sm font-medium text-gray-400 mb-3">Recent Rooms</h3>
+                            <div class="space-y-2">
+                                <template x-for="room in recentRooms.slice(0, 5)" :key="room.id">
+                                    <button @click="roomId = room.id; joinRoom()"
+                                            class="w-full text-left p-3 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-between transition-colors">
+                                        <span x-text="room.name"></span>
+                                        <div class="flex items-center space-x-2">
+                                            <span class="text-xs text-gray-500" 
+                                                  x-text="new Date(room.lastVisited).toLocaleDateString()"></span>
+                                            <template x-if="room.hasPassword">
+                                                <svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+                                                </svg>
+                                            </template>
+                                        </div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Footer -->
+                    <div class="text-center mt-8 text-xs text-gray-500">
+                        <p>No servers • No accounts • No tracking</p>
+                        <p class="mt-1">Powered by WebRTC & BitTorrent</p>
+                    </div>
+                </div>
+            </div>
+        </template>
+        
+        <!-- Notifications -->
+        <div x-show="notification.show" 
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 transform translate-y-2"
+             x-transition:enter-end="opacity-100 transform translate-y-0"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100 transform translate-y-0"
+             x-transition:leave-end="opacity-0 transform translate-y-2"
+             class="fixed bottom-4 right-4 z-50">
+            <div class="bg-gray-800 text-white px-4 py-3 rounded-lg shadow-lg max-w-sm">
+                <p class="text-sm" x-text="notification.message"></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
