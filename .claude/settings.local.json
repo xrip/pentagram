@@ -27,7 +27,8 @@
       "Bash(git add .)",
       "Bash(npm run test:p2p:*)",
       "Bash(npm run test:basic:*)",
-      "Bash(npm run test:crypto:*)"
+      "Bash(npm run test:crypto:*)",
+      "mcp__playwright__browser_resize"
     ],
     "deny": [],
     "ask": []

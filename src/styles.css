@@ -111,6 +111,31 @@
   .focus-visible {
     @apply focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900;
   }
+  
+  /* Mobile-specific utilities */
+  .mobile-safe-area {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  .mobile-safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .mobile-safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  /* Touch-friendly tap targets */
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Scrollable areas for mobile */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Custom animations */
@@ -163,5 +188,68 @@
   /* Ensure dark mode is properly applied */
   :root {
     color-scheme: dark;
+  }
+}
+
+/* Mobile-specific responsive design */
+@media (max-width: 768px) {
+  /* Prevent horizontal scrolling */
+  body {
+    overflow-x: hidden;
+  }
+  
+  /* Improve touch interactions */
+  button, [role="button"] {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Ensure message bubbles don't overflow */
+  .message-bubble {
+    max-width: calc(100vw - 5rem);
+  }
+  
+  /* Optimize input focus for mobile keyboards */
+  input[type="text"], textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  
+  /* Improve scrolling performance */
+  #messages-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Mobile portrait optimizations */
+@media (max-width: 480px) and (orientation: portrait) {
+  /* Reduce padding on very small screens */
+  .p-4 {
+    padding: 0.75rem;
+  }
+  
+  /* Smaller text for space efficiency */
+  .text-sm {
+    font-size: 0.825rem;
+  }
+  
+  /* Compact form elements */
+  .space-y-4 > * + * {
+    margin-top: 0.75rem;
+  }
+}
+
+/* Safe area handling for notched devices */
+@supports (padding: max(0px)) {
+  .mobile-safe-area {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  
+  .mobile-safe-area-top {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
+  
+  .mobile-safe-area-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 }

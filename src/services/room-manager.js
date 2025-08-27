@@ -22,19 +22,18 @@ export class RoomManager {
             rtcConfig: {
                 iceServers: [
                     { urls: 'stun:global.stun.twilio.com:3478' },
-                    { urls: 'stun.nextcloud.com:3478' },
-                    { urls: 'stun.services.mozilla.com:3478' },
+                    { urls: 'stun:stun.services.mozilla.com:3478' },
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
+                    {
+                        urls: 'turn:relay1.expressturn.com:3480',
+                        username: '000000002071633131',
+                        credential: 'ca0MzQPfNpAFRA76TklRoOndCQQ='
+                    }
                 ]
-            },
-            turnConfig: {
-                urls: ['turn:relay1.expressturn.com:3480'],
-                username: '000000002071633131',
-                credential: 'ca0MzQPfNpAFRA76TklRoOndCQQ='
             }
         }
         
