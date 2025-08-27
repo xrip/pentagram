@@ -8,7 +8,6 @@ export class RoomManager {
         this.wakeLock = null
         this.config = {
             appId: 'pentagram-foo-v1',
-            relayRedundancy: 5,
             
             // Use reliable BitTorrent trackers
             relayUrls: [
@@ -25,12 +24,13 @@ export class RoomManager {
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' },
                     { urls: 'stun:stun1.l.google.com:19302' },
-                    {
-                        urls: 'turn:relay1.expressturn.com:3480',
-                        username: '000000002071633131',
-                        credential: 'ca0MzQPfNpAFRA76TklRoOndCQQ='
-                    }
+                    { urls: 'stun.cloudflare.com:3478' },
                 ]
+            },
+            turnConfig: {
+                urls: ['turn:relay1.expressturn.com:3480'],
+                username: '000000002071633131',
+                credential: 'ca0MzQPfNpAFRA76TklRoOndCQQ='
             }
         }
         
