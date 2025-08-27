@@ -29,7 +29,9 @@
       "Bash(npm run test:basic:*)",
       "Bash(npm run test:crypto:*)",
       "mcp__playwright__browser_resize",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(npm run lint)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

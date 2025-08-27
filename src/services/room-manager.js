@@ -13,6 +13,7 @@ export class RoomManager {
         this.maxReconnectionAttempts = 5
         this.reconnectionDelay = 2000 // Start with 2 seconds
         this.maxReconnectionDelay = 30000 // Max 30 seconds
+        this.reconnectionTimeout = null // Track active reconnection timeout
         this.isReconnecting = false
         this.lastConnectedTime = null
         this.connectionStable = false
@@ -92,7 +93,9 @@ export class RoomManager {
         
         if (this.room && !this.isReconnecting) {
             console.warn('Already in a room, leaving first')
-            this.leaveRoom()
+            await this.leaveRoom()
+            // Add a small delay to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 100))
         }
         
         try {
@@ -286,41 +289,69 @@ export class RoomManager {
         return this.room.makeAction(actionId)
     }
     
-    // Leave the current room
-    leaveRoom() {
+    // Leave the current room with proper cleanup
+    async leaveRoom() {
         if (!this.room) return
         
-        console.log('Leaving room...')
+        console.log('Leaving room with full cleanup...')
         
         try {
+            // Get all peer connections before leaving
+            const peers = this.room.getPeers()
+            console.log(`Closing ${peers.size} peer connections...`)
+            
+            // Close all peer connections explicitly
+            for (const [peerId, connection] of peers) {
+                try {
+                    if (connection.connectionState !== 'closed') {
+                        connection.close()
+                        console.log(`Closed connection to peer: ${peerId}`)
+                    }
+                } catch (e) {
+                    console.warn(`Error closing peer connection ${peerId}:`, e)
+                }
+            }
+            
+            // Leave the room (this should clean up remaining resources)
             this.room.leave()
-            this.room = null
-            this.isConnected = false
-            this.connectionStable = false
-            this.isReconnecting = false
-            this.lastRoomConfig = null
-            this.releaseWakeLock()
-            
-            // Stop monitoring
-            this.stopConnectionHealthMonitoring()
-            this.stopPeerHealthMonitoring()
-            
-            // Clear health checks
-            this.peerHealthChecks.clear()
-            
-            // Clear timers
-            if (this.stableConnectionTimer) {
-                clearTimeout(this.stableConnectionTimer)
-                this.stableConnectionTimer = null
-            }
-            
-            if (this.onConnectionStatusCallback) {
-                this.onConnectionStatusCallback('disconnected')
-            }
-            
             console.log('Room left successfully')
+            
+            // Clear room reference
+            this.room = null
+            
         } catch (error) {
-            console.error('Error leaving room:', error)
+            console.error('Error during room cleanup:', error)
+            // Force clear room reference even if cleanup failed
+            this.room = null
+        }
+        
+        // Reset state
+        this.isConnected = false
+        this.connectionStable = false
+        this.isReconnecting = false
+        this.lastRoomConfig = null
+        this.releaseWakeLock()
+        
+        // Stop monitoring
+        this.stopConnectionHealthMonitoring()
+        this.stopPeerHealthMonitoring()
+        
+        // Clear health checks
+        this.peerHealthChecks.clear()
+        
+        // Clear timers
+        if (this.stableConnectionTimer) {
+            clearTimeout(this.stableConnectionTimer)
+            this.stableConnectionTimer = null
+        }
+        
+        if (this.reconnectionTimeout) {
+            clearTimeout(this.reconnectionTimeout)
+            this.reconnectionTimeout = null
+        }
+        
+        if (this.onConnectionStatusCallback) {
+            this.onConnectionStatusCallback('disconnected')
         }
     }
     
@@ -504,7 +535,7 @@ export class RoomManager {
                 // If we've been disconnected from all trackers for too long, trigger reconnection
                 if (this.connectionStable) {
                     console.warn('All tracker connections lost, scheduling reconnection')
-                    this.handleConnectionLoss()
+                    this.handleConnectionLoss() // Fire and forget - async handling
                 }
             }
             
@@ -523,12 +554,12 @@ export class RoomManager {
         } catch (error) {
             console.warn('Connection health check failed:', error)
             if (this.connectionStable) {
-                this.handleConnectionLoss()
+                this.handleConnectionLoss() // Fire and forget - async handling
             }
         }
     }
     
-    handleConnectionLoss() {
+    async handleConnectionLoss() {
         if (this.isReconnecting) {
             return // Already handling reconnection
         }
@@ -542,16 +573,41 @@ export class RoomManager {
             this.onConnectionStatusCallback('reconnecting')
         }
         
-        this.scheduleReconnection()
+        await this.scheduleReconnection()
     }
     
-    scheduleReconnection() {
+    async scheduleReconnection() {
         if (this.isReconnecting || !this.lastRoomConfig) {
             return
         }
         
         if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
             console.error(`Max reconnection attempts (${this.maxReconnectionAttempts}) reached`)
+            this.isReconnecting = false
+            
+            // Final cleanup attempt to prevent connection leaks
+            if (this.room) {
+                try {
+                    // Use immediate cleanup for failed reconnection
+                    if (this.room.getPeers) {
+                        const peers = this.room.getPeers()
+                        for (const [peerId, connection] of peers) {
+                            try {
+                                if (connection.connectionState !== 'closed') {
+                                    connection.close()
+                                }
+                            } catch (e) {
+                                console.warn(`Error closing peer ${peerId}:`, e)
+                            }
+                        }
+                    }
+                    this.room.leave()
+                    this.room = null
+                } catch (e) {
+                    console.warn('Final cleanup error:', e)
+                    this.room = null
+                }
+            }
             
             if (this.onConnectionStatusCallback) {
                 this.onConnectionStatusCallback('failed')
@@ -570,7 +626,13 @@ export class RoomManager {
         
         console.log(`Scheduling reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts} in ${delay}ms`)
         
-        setTimeout(async () => {
+        // Clear any existing reconnection timeout to prevent stacking
+        if (this.reconnectionTimeout) {
+            clearTimeout(this.reconnectionTimeout)
+            console.log('Cleared existing reconnection timeout')
+        }
+        
+        this.reconnectionTimeout = setTimeout(async () => {
             if (!this.isReconnecting || !this.lastRoomConfig) {
                 return
             }
@@ -581,11 +643,14 @@ export class RoomManager {
                 // Clean up current room if exists
                 if (this.room) {
                     try {
-                        this.room.leave()
+                        await this.leaveRoom()
+                        // Wait a bit longer for cleanup to complete
+                        await new Promise(resolve => setTimeout(resolve, 200))
                     } catch (e) {
                         console.warn('Error leaving room during reconnection:', e)
+                        // Force clear even if cleanup failed
+                        this.room = null
                     }
-                    this.room = null
                 }
                 
                 // Attempt to rejoin
@@ -601,7 +666,7 @@ export class RoomManager {
                 console.error(`Reconnection attempt ${this.reconnectionAttempts} failed:`, error)
                 
                 // Schedule next attempt
-                this.scheduleReconnection()
+                await this.scheduleReconnection()
             }
         }, delay)
     }
@@ -682,6 +747,6 @@ export class RoomManager {
         console.log('Force reconnection initiated')
         
         this.reconnectionAttempts = 0 // Reset attempts
-        this.handleConnectionLoss()
+        await this.handleConnectionLoss()
     }
 }

@@ -418,12 +418,12 @@ document.addEventListener('alpine:init', () => {
         },
         
         // Leave current room
-        leaveRoom() {
+        async leaveRoom() {
             console.log('Leaving room...')
             
-            // Leave P2P room
+            // Leave P2P room with proper cleanup
             if (this.roomManager) {
-                this.roomManager.leaveRoom()
+                await this.roomManager.leaveRoom()
             }
             
             // Reset state
