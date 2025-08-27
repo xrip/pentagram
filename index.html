@@ -12,8 +12,8 @@
     <!-- App Styles -->
     
     <!-- App Scripts -->
-  <script type="module" crossorigin src="/pentagram/assets/index-I61OovWP.js"></script>
-  <link rel="stylesheet" crossorigin href="/pentagram/assets/index-B3k5y4KU.css">
+  <script type="module" crossorigin src="/pentagram/assets/index-C88XtY74.js"></script>
+  <link rel="stylesheet" crossorigin href="/pentagram/assets/index-CBmkzrso.css">
 <link rel="manifest" href="/pentagram/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/pentagram/registerSW.js"></script></head>
 <body class="bg-gray-900 text-white min-h-screen">
     <!-- Main App Container -->
@@ -23,14 +23,8 @@
             <div class="bg-gray-800 rounded-lg p-2 lg:p-3 shadow-lg">
                 <div class="flex items-center space-x-2">
                     <div class="w-2 h-2 rounded-full" 
-                         :class="{
-                           'bg-gray-500': connectionQuality === 'unknown',
-                           'bg-red-500': connectionQuality === 'poor', 
-                           'bg-yellow-500': connectionQuality === 'fair',
-                           'bg-blue-500': connectionQuality === 'good',
-                           'bg-green-500': connectionQuality === 'excellent'
-                         }"></div>
-                    <span class="text-xs lg:text-sm" x-text="`P2P: ${connectionQuality}`"></span>
+                         :class="[connectionColorClass, connectionStatusClass]"></div>
+                    <span class="text-xs lg:text-sm" x-text="`P2P: ${connectionText}`"></span>
                 </div>
                 
                 <!-- Tracker Details -->
