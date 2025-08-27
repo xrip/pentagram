@@ -12,8 +12,8 @@
     <!-- App Styles -->
     
     <!-- App Scripts -->
-  <script type="module" crossorigin src="/pentagram/assets/index-CT3gUfdo.js"></script>
-  <link rel="stylesheet" crossorigin href="/pentagram/assets/index-CBmkzrso.css">
+  <script type="module" crossorigin src="/pentagram/assets/index-CM9J9nCn.js"></script>
+  <link rel="stylesheet" crossorigin href="/pentagram/assets/index-Ehu4sf4F.css">
 <link rel="manifest" href="/pentagram/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/pentagram/registerSW.js"></script></head>
 <body class="bg-gray-900 text-white min-h-screen">
     <!-- Main App Container -->
@@ -186,11 +186,23 @@
                             <div class="flex items-center space-x-3 p-2 bg-gray-700 rounded-lg transition-all duration-200"
                                  :class="peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted ? 'ring-2 ring-green-400 bg-gray-600' : ''">
                                 <!-- Connection Status Dot -->
-                                <div class="w-2 h-2 bg-green-500 rounded-full"
-                                     :class="peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted ? 'bg-green-400 animate-pulse' : ''"></div>
+                                <div class="w-2 h-2 rounded-full"
+                                     :class="{
+                                         'bg-green-500': peer.responsive !== false,
+                                         'bg-red-500': peer.responsive === false,
+                                         'animate-pulse': peer.voiceStatus?.isActive && peer.voiceStatus?.isSpeaking && !peer.voiceStatus?.isMuted
+                                     }"></div>
                                 
-                                <!-- Username -->
-                                <span class="text-sm flex-1" x-text="peer.username || peer.id.substring(0, 8)"></span>
+                                <!-- Username and Status -->
+                                <div class="flex-1">
+                                    <span class="text-sm" x-text="peer.username || peer.id.substring(0, 8)"></span>
+                                    <template x-if="peer.latency !== null">
+                                        <span class="text-xs text-gray-400 ml-2" x-text="`${peer.latency}ms`"></span>
+                                    </template>
+                                    <template x-if="peer.responsive === false">
+                                        <span class="text-xs text-red-400 ml-2">unresponsive</span>
+                                    </template>
+                                </div>
                                 
                                 <!-- Voice Activity Indicator -->
                                 <template x-if="peer.voiceStatus?.isActive">
