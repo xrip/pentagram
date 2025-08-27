@@ -4,6 +4,7 @@ document.addEventListener('alpine:init', () => {
         // Connection tracking
         trackers: [],
         connectionQuality: 'unknown', // unknown, poor, fair, good, excellent
+        isReconnecting: false,
         lastUpdate: null,
         
         // Component initialization
@@ -35,10 +36,19 @@ document.addEventListener('alpine:init', () => {
                         this.trackers = trackerStatus
                         
                         if (app.connectionStatus === 'connected' && trackerStatus.length > 0) {
+                            this.isReconnecting = false
                             this.assessConnectionQuality()
                         } else if (app.connectionStatus === 'connecting') {
+                            this.isReconnecting = false
                             this.connectionQuality = 'poor'
+                        } else if (app.connectionStatus === 'reconnecting') {
+                            this.isReconnecting = true
+                            this.connectionQuality = 'poor'
+                        } else if (app.connectionStatus === 'stable') {
+                            this.isReconnecting = false
+                            this.connectionQuality = 'excellent'
                         } else {
+                            this.isReconnecting = false
                             this.connectionQuality = 'unknown'
                         }
                     } else {
@@ -79,7 +89,7 @@ document.addEventListener('alpine:init', () => {
         get connectionColorClass() {
             const colors = {
                 unknown: 'bg-gray-500',
-                poor: 'bg-red-500',
+                poor: this.isReconnecting ? 'bg-orange-500' : 'bg-red-500',
                 fair: 'bg-yellow-500',
                 good: 'bg-blue-500',
                 excellent: 'bg-green-500'
@@ -87,8 +97,16 @@ document.addEventListener('alpine:init', () => {
             return colors[this.connectionQuality] || colors.unknown
         },
         
+        // Get connection status with reconnection context
+        get connectionStatusClass() {
+            return this.isReconnecting ? 'animate-pulse' : ''
+        },
+        
         // Get connection quality text
         get connectionText() {
+            if (this.isReconnecting) {
+                return 'Reconnecting...'
+            }
             return this.connectionQuality.charAt(0).toUpperCase() + this.connectionQuality.slice(1)
         },
         

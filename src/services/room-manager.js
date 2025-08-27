@@ -6,6 +6,27 @@ export class RoomManager {
         this.room = null
         this.isConnected = false
         this.wakeLock = null
+        
+        // Connection monitoring and recovery
+        this.connectionHealthTimer = null
+        this.reconnectionAttempts = 0
+        this.maxReconnectionAttempts = 5
+        this.reconnectionDelay = 2000 // Start with 2 seconds
+        this.maxReconnectionDelay = 30000 // Max 30 seconds
+        this.isReconnecting = false
+        this.lastConnectedTime = null
+        this.connectionStable = false
+        this.stableConnectionTimer = null
+        
+        // Peer health monitoring
+        this.peerHealthChecks = new Map() // peerId -> last successful ping
+        this.peerHealthTimer = null
+        this.peerHealthInterval = 15000 // Check peer health every 15 seconds
+        this.peerTimeoutThreshold = 30000 // Consider peer disconnected after 30 seconds
+        
+        // Room configuration storage for reconnection
+        this.lastRoomConfig = null
+        
         this.config = {
             appId: 'pentagram-foo-v1',
             
@@ -69,7 +90,7 @@ export class RoomManager {
     async joinRoom(roomId, password = null, onError = null) {
         await this.init()
         
-        if (this.room) {
+        if (this.room && !this.isReconnecting) {
             console.warn('Already in a room, leaving first')
             this.leaveRoom()
         }
@@ -80,7 +101,10 @@ export class RoomManager {
                 password: password || null
             }
             
-            console.log(`Joining room: ${roomId}`)
+            // Store configuration for potential reconnection
+            this.lastRoomConfig = { roomId, password, onError }
+            
+            console.log(`${this.isReconnecting ? 'Reconnecting to' : 'Joining'} room: ${roomId}`)
             console.log('Config:', { ...config, password: password ? '[HIDDEN]' : null })
             
             // Join room using Trystero BitTorrent strategy
@@ -90,8 +114,24 @@ export class RoomManager {
             this.setupRoomEventHandlers()
             
             this.isConnected = true
-            console.log('Room joined successfully')
+            this.lastConnectedTime = Date.now()
+            this.reconnectionAttempts = 0 // Reset retry count on success
+            this.isReconnecting = false
+            
+            console.log(`Room ${this.isReconnecting ? 'reconnected' : 'joined'} successfully`)
             this.requestWakeLock()
+            
+            // Start connection health monitoring
+            this.startConnectionHealthMonitoring()
+            
+            // Start peer health monitoring
+            this.startPeerHealthMonitoring()
+            
+            // Mark connection as stable after 10 seconds
+            this.stableConnectionTimer = setTimeout(() => {
+                this.connectionStable = true
+                console.log('Connection marked as stable')
+            }, 10000)
             
             // Notify about connection status
             if (this.onConnectionStatusCallback) {
@@ -103,9 +143,15 @@ export class RoomManager {
         } catch (error) {
             console.error('Failed to join room:', error)
             this.isConnected = false
+            this.isReconnecting = false
             
             if (this.onConnectionStatusCallback) {
                 this.onConnectionStatusCallback('failed')
+            }
+            
+            // Attempt reconnection if this isn't the first attempt or if connection was stable
+            if (this.connectionStable || this.reconnectionAttempts > 0) {
+                this.scheduleReconnection()
             }
             
             throw error
@@ -120,10 +166,16 @@ export class RoomManager {
         this.room.onPeerJoin(async (peerId) => {
             console.log(`Peer joined: ${peerId}`)
             
+            // Initialize peer health tracking
+            this.peerHealthChecks.set(peerId, Date.now())
+            
             try {
                 // Measure connection latency
                 const latency = await this.room.ping(peerId)
                 console.log(`P2P latency to ${peerId}: ${latency}ms`)
+                
+                // Update health check timestamp
+                this.peerHealthChecks.set(peerId, Date.now())
             } catch (error) {
                 console.warn(`Could not ping ${peerId}:`, error)
             }
@@ -136,6 +188,9 @@ export class RoomManager {
         // Peer leave events
         this.room.onPeerLeave((peerId) => {
             console.log(`Peer left: ${peerId}`)
+            
+            // Remove from health checks
+            this.peerHealthChecks.delete(peerId)
             
             // Clean up peer audio
             this.removePeerAudio(peerId)
@@ -241,7 +296,23 @@ export class RoomManager {
             this.room.leave()
             this.room = null
             this.isConnected = false
+            this.connectionStable = false
+            this.isReconnecting = false
+            this.lastRoomConfig = null
             this.releaseWakeLock()
+            
+            // Stop monitoring
+            this.stopConnectionHealthMonitoring()
+            this.stopPeerHealthMonitoring()
+            
+            // Clear health checks
+            this.peerHealthChecks.clear()
+            
+            // Clear timers
+            if (this.stableConnectionTimer) {
+                clearTimeout(this.stableConnectionTimer)
+                this.stableConnectionTimer = null
+            }
             
             if (this.onConnectionStatusCallback) {
                 this.onConnectionStatusCallback('disconnected')
@@ -339,6 +410,11 @@ export class RoomManager {
         this.onConnectionStatusCallback = callback
     }
     
+    // Set callback for when client needs to re-announce after reconnection
+    onReconnected(callback) {
+        this.onReconnectedCallback = callback
+    }
+    
     // Get self peer ID
     getSelfId() {
         return this.selfId
@@ -391,5 +467,221 @@ export class RoomManager {
             await this.wakeLock.release();
             this.wakeLock = null;
         }
+    }
+
+    // Connection health monitoring methods
+    startConnectionHealthMonitoring() {
+        this.stopConnectionHealthMonitoring()
+        
+        this.connectionHealthTimer = setInterval(async () => {
+            await this.checkConnectionHealth()
+        }, 10000) // Check every 10 seconds
+        
+        console.log('Connection health monitoring started')
+    }
+    
+    stopConnectionHealthMonitoring() {
+        if (this.connectionHealthTimer) {
+            clearInterval(this.connectionHealthTimer)
+            this.connectionHealthTimer = null
+            console.log('Connection health monitoring stopped')
+        }
+    }
+    
+    async checkConnectionHealth() {
+        if (!this.isConnected || !this.room) {
+            return
+        }
+        
+        try {
+            // Check tracker connections
+            const trackerStatus = this.getTrackerStatus()
+            const connectedTrackers = trackerStatus.filter(t => t.connected).length
+            
+            if (connectedTrackers === 0) {
+                console.warn('No tracker connections available, connection may be unstable')
+                
+                // If we've been disconnected from all trackers for too long, trigger reconnection
+                if (this.connectionStable) {
+                    console.warn('All tracker connections lost, scheduling reconnection')
+                    this.handleConnectionLoss()
+                }
+            }
+            
+            // Try to ping the room to verify connectivity
+            const peers = this.getPeers()
+            if (peers.size > 0) {
+                // Test connectivity to first peer
+                const firstPeer = Array.from(peers.keys())[0]
+                try {
+                    await this.room.ping(firstPeer, 5000) // 5 second timeout
+                } catch (pingError) {
+                    console.warn(`Failed to ping peer ${firstPeer}, connection may be unstable`)
+                }
+            }
+            
+        } catch (error) {
+            console.warn('Connection health check failed:', error)
+            if (this.connectionStable) {
+                this.handleConnectionLoss()
+            }
+        }
+    }
+    
+    handleConnectionLoss() {
+        if (this.isReconnecting) {
+            return // Already handling reconnection
+        }
+        
+        console.log('Connection loss detected, initiating reconnection process')
+        
+        this.isConnected = false
+        this.connectionStable = false
+        
+        if (this.onConnectionStatusCallback) {
+            this.onConnectionStatusCallback('reconnecting')
+        }
+        
+        this.scheduleReconnection()
+    }
+    
+    scheduleReconnection() {
+        if (this.isReconnecting || !this.lastRoomConfig) {
+            return
+        }
+        
+        if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
+            console.error(`Max reconnection attempts (${this.maxReconnectionAttempts}) reached`)
+            
+            if (this.onConnectionStatusCallback) {
+                this.onConnectionStatusCallback('failed')
+            }
+            return
+        }
+        
+        this.reconnectionAttempts++
+        this.isReconnecting = true
+        
+        // Calculate delay with exponential backoff
+        const delay = Math.min(
+            this.reconnectionDelay * Math.pow(1.5, this.reconnectionAttempts - 1),
+            this.maxReconnectionDelay
+        )
+        
+        console.log(`Scheduling reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts} in ${delay}ms`)
+        
+        setTimeout(async () => {
+            if (!this.isReconnecting || !this.lastRoomConfig) {
+                return
+            }
+            
+            try {
+                console.log(`Reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts}`)
+                
+                // Clean up current room if exists
+                if (this.room) {
+                    try {
+                        this.room.leave()
+                    } catch (e) {
+                        console.warn('Error leaving room during reconnection:', e)
+                    }
+                    this.room = null
+                }
+                
+                // Attempt to rejoin
+                const { roomId, password, onError } = this.lastRoomConfig
+                await this.joinRoom(roomId, password, onError)
+                
+                // Trigger re-announcement after successful reconnection
+                if (this.onReconnectedCallback) {
+                    this.onReconnectedCallback()
+                }
+                
+            } catch (error) {
+                console.error(`Reconnection attempt ${this.reconnectionAttempts} failed:`, error)
+                
+                // Schedule next attempt
+                this.scheduleReconnection()
+            }
+        }, delay)
+    }
+    
+    // Peer health monitoring methods
+    startPeerHealthMonitoring() {
+        this.stopPeerHealthMonitoring()
+        
+        this.peerHealthTimer = setInterval(async () => {
+            await this.checkPeerHealth()
+        }, this.peerHealthInterval)
+        
+        console.log('Peer health monitoring started')
+    }
+    
+    stopPeerHealthMonitoring() {
+        if (this.peerHealthTimer) {
+            clearInterval(this.peerHealthTimer)
+            this.peerHealthTimer = null
+            console.log('Peer health monitoring stopped')
+        }
+    }
+    
+    async checkPeerHealth() {
+        if (!this.isConnected || !this.room) {
+            return
+        }
+        
+        const now = Date.now()
+        const peersToCheck = Array.from(this.peerHealthChecks.entries())
+        
+        for (const [peerId, lastHealthCheck] of peersToCheck) {
+            const timeSinceLastCheck = now - lastHealthCheck
+            
+            if (timeSinceLastCheck > this.peerTimeoutThreshold) {
+                console.warn(`Peer ${peerId} hasn't responded in ${timeSinceLastCheck}ms, removing from health checks`)
+                this.peerHealthChecks.delete(peerId)
+                continue
+            }
+            
+            try {
+                // Ping the peer to check connectivity
+                const latency = await this.room.ping(peerId, 10000) // 10 second timeout
+                
+                if (latency !== null) {
+                    // Update health check timestamp
+                    this.peerHealthChecks.set(peerId, now)
+                    // console.log(`Peer ${peerId} health check OK (${latency}ms)`)
+                }
+            } catch (error) {
+                console.warn(`Peer ${peerId} health check failed:`, error)
+                
+                // Don't immediately remove, but don't update timestamp
+                // Let the timeout mechanism handle it
+            }
+        }
+    }
+    
+    // Get connection status including reconnection state
+    getConnectionStatus() {
+        if (this.isReconnecting) {
+            return 'reconnecting'
+        }
+        
+        if (!this.isConnected) {
+            return 'disconnected'
+        }
+        
+        return this.connectionStable ? 'stable' : 'connecting'
+    }
+    
+    // Force reconnection (can be called manually)
+    async forceReconnection() {
+        if (!this.lastRoomConfig) {
+            throw new Error('No room configuration available for reconnection')
+        }
+        
+        console.log('Force reconnection initiated')
+        
+        this.reconnectionAttempts = 0 // Reset attempts
+        this.handleConnectionLoss()
     }
 }

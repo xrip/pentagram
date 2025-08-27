@@ -10,7 +10,7 @@ document.addEventListener('alpine:init', () => {
         roomId: '',
         roomPassword: '',
         isConnected: false,
-        connectionStatus: 'disconnected', // disconnected, connecting, connected
+        connectionStatus: 'disconnected', // disconnected, connecting, connected, reconnecting, stable
         peers: new Map(),
         messages: [],
         messageInput: '',
@@ -136,18 +136,37 @@ document.addEventListener('alpine:init', () => {
             
             this.roomManager.onConnectionStatus((status) => {
                 console.log('App: Connection status changed:', status)
+                const wasReconnecting = this.connectionStatus === 'reconnecting'
+                
                 if (status === 'connected') {
                     this.isConnected = true
                     this.connectionStatus = 'connected'
+                    // Show recovery notification if we were reconnecting
+                    if (wasReconnecting) {
+                        this.showNotification('Connection restored!')
+                    }
                 } else if (status === 'disconnected') {
                     this.isConnected = false
                     this.connectionStatus = 'disconnected'
                     this.peers.clear()
                     this.messages = []
+                } else if (status === 'reconnecting') {
+                    this.isConnected = false
+                    this.connectionStatus = 'reconnecting'
+                    this.showNotification('Reconnecting...', 0) // No timeout for reconnecting notification
+                } else if (status === 'stable') {
+                    this.connectionStatus = 'stable'
+                    this.showNotification('Connection is stable', 2000)
                 } else if (status === 'failed') {
                     this.connectionStatus = 'disconnected'
                     this.showNotification('Failed to connect to P2P network', 5000)
                 }
+            })
+            
+            // Handle reconnection - re-announce client presence
+            this.roomManager.onReconnected(() => {
+                console.log('App: Reconnected - re-announcing presence')
+                this.reannouncePresence()
             })
         },
         
@@ -635,6 +654,30 @@ document.addEventListener('alpine:init', () => {
             } catch (error) {
                 console.error('Failed to clear data:', error)
                 this.showNotification('Failed to clear data')
+            }
+        },
+        
+        // Re-announce presence after reconnection to restore peer visibility
+        reannouncePresence() {
+            if (!this.sendUserInfo || !this.identity || !this.username) {
+                console.warn('Cannot re-announce: missing sendUserInfo, identity, or username')
+                return
+            }
+            
+            try {
+                // Broadcast our user info to all current peers
+                this.sendUserInfo({
+                    username: this.username,
+                    publicKey: this.identity.publicKey,
+                    joinedAt: Date.now(),
+                    reconnected: true // Flag to indicate this is a re-announcement
+                })
+                
+                console.log('Re-announced presence to all peers after reconnection')
+                this.showNotification('Restored visibility to other users', 2000)
+                
+            } catch (error) {
+                console.error('Failed to re-announce presence:', error)
             }
         },
         

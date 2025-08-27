@@ -23,14 +23,8 @@
             <div class="bg-gray-800 rounded-lg p-2 lg:p-3 shadow-lg">
                 <div class="flex items-center space-x-2">
                     <div class="w-2 h-2 rounded-full" 
-                         :class="{
-                           'bg-gray-500': connectionQuality === 'unknown',
-                           'bg-red-500': connectionQuality === 'poor', 
-                           'bg-yellow-500': connectionQuality === 'fair',
-                           'bg-blue-500': connectionQuality === 'good',
-                           'bg-green-500': connectionQuality === 'excellent'
-                         }"></div>
-                    <span class="text-xs lg:text-sm" x-text="`P2P: ${connectionQuality}`"></span>
+                         :class="[connectionColorClass, connectionStatusClass]"></div>
+                    <span class="text-xs lg:text-sm" x-text="`P2P: ${connectionText}`"></span>
                 </div>
                 
                 <!-- Tracker Details -->

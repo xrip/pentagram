@@ -28,7 +28,8 @@
       "Bash(npm run test:p2p:*)",
       "Bash(npm run test:basic:*)",
       "Bash(npm run test:crypto:*)",
-      "mcp__playwright__browser_resize"
+      "mcp__playwright__browser_resize",
+      "mcp__sequential-thinking__sequentialthinking"
     ],
     "deny": [],
     "ask": []

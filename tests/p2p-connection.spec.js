@@ -104,7 +104,7 @@ test.describe('P2P Connection and Chat', () => {
     await expect(page.locator('text=P2P:')).toBeVisible()
     
     // Connection quality should be displayed (unknown initially)
-    const statusText = await page.locator('[x-text*="connectionQuality"]').textContent()
+    const statusText = await page.locator('[x-text*="P2P:"]').textContent()
     expect(['unknown', 'poor', 'fair', 'good', 'excellent']).toContain(
       statusText.toLowerCase().split(':')[1]?.trim()
     )
