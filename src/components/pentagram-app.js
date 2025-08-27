@@ -26,9 +26,11 @@ document.addEventListener('alpine:init', () => {
         storageManager: null,
         audioManager: null,
         
-        // Peer discovery
+        // Peer discovery and health monitoring
         announcementTimer: null,
-        announcementInterval: 10000, // Announce every 30 seconds
+        announcementInterval: 30000, // Announce every 30 seconds
+        peerPingTimer: null,
+        peerPingInterval: 15000, // Ping peers every 15 seconds
         
         // Notification system
         notification: {
@@ -41,6 +43,8 @@ document.addEventListener('alpine:init', () => {
         sendUserInfo: null,
         sendTyping: null,
         sendVoiceStatus: null,
+        sendPing: null,
+        sendPong: null,
         
         // Component initialization
         async init() {
@@ -109,6 +113,9 @@ document.addEventListener('alpine:init', () => {
                     username: null,
                     publicKey: null,
                     joinedAt: Date.now(),
+                    lastSeen: Date.now(),
+                    responsive: true,
+                    latency: null,
                     isTyping: false
                 })
                 
@@ -291,8 +298,9 @@ document.addEventListener('alpine:init', () => {
                 this.showNotification(`Connected to room: ${this.roomId}`)
                 console.log('Room joined successfully')
                 
-                // Start periodic announcements to improve peer discovery
+                // Start periodic announcements and peer pinging
                 this.startPeriodicAnnouncements()
+                this.startPeerPinging()
                 
                 return true
                 
@@ -337,6 +345,22 @@ document.addEventListener('alpine:init', () => {
                 
                 getVoice((voiceStatus, peerId) => {
                     this.handleVoiceStatus(voiceStatus, peerId)
+                })
+                
+                // Peer health monitoring - ping/pong
+                const [sendPing, getPing] = room.makeAction('ping')
+                const [sendPong, getPong] = room.makeAction('pong')
+                this.sendPing = sendPing
+                this.sendPong = sendPong
+                
+                // Handle incoming pings - respond with pong
+                getPing((pingData, peerId) => {
+                    this.handlePeerPing(pingData, peerId)
+                })
+                
+                // Handle incoming pongs - update peer health
+                getPong((pongData, peerId) => {
+                    this.handlePeerPong(pongData, peerId)
                 })
                 
                 console.log('Communication actions setup complete')
@@ -398,9 +422,47 @@ document.addEventListener('alpine:init', () => {
             if (peer) {
                 peer.username = userInfo.username
                 peer.publicKey = userInfo.publicKey
+                peer.lastSeen = Date.now()
                 this.peers.set(peerId, peer)
                 
                 console.log(`Updated peer info for ${peerId}: ${userInfo.username}`)
+            }
+        },
+        
+        // Handle incoming ping from peer
+        handlePeerPing(pingData, peerId) {
+            if (this.sendPong) {
+                // Respond with pong including our current status
+                this.sendPong({
+                    id: pingData.id,
+                    timestamp: Date.now(),
+                    username: this.username,
+                    status: 'active'
+                }, peerId)
+                
+                // Update peer's last seen time
+                const peer = this.peers.get(peerId)
+                if (peer) {
+                    peer.lastSeen = Date.now()
+                    peer.responsive = true
+                    this.peers.set(peerId, peer)
+                }
+                
+                console.log(`Received ping from ${peer?.username || peerId}, sent pong`)
+            }
+        },
+        
+        // Handle incoming pong from peer
+        handlePeerPong(pongData, peerId) {
+            const peer = this.peers.get(peerId)
+            if (peer) {
+                const roundTripTime = Date.now() - pongData.timestamp
+                peer.lastSeen = Date.now()
+                peer.responsive = true
+                peer.latency = roundTripTime
+                this.peers.set(peerId, peer)
+                
+                console.log(`Received pong from ${peer.username || peerId}, RTT: ${roundTripTime}ms`)
             }
         },
         
@@ -451,9 +513,12 @@ document.addEventListener('alpine:init', () => {
             this.sendUserInfo = null
             this.sendTyping = null
             this.sendVoiceStatus = null
+            this.sendPing = null
+            this.sendPong = null
             
-            // Stop periodic announcements
+            // Stop periodic announcements and peer pings
             this.stopPeriodicAnnouncements()
+            this.stopPeerPinging()
             
             // Update URL
             window.history.replaceState({}, '', window.location.pathname)
@@ -756,6 +821,51 @@ document.addEventListener('alpine:init', () => {
                 clearInterval(this.announcementTimer)
                 this.announcementTimer = null
                 console.log('Stopped periodic announcements')
+            }
+        },
+        
+        // Start periodic peer pinging for health monitoring
+        startPeerPinging() {
+            if (this.peerPingTimer) {
+                clearInterval(this.peerPingTimer)
+            }
+            
+            console.log('Starting periodic peer pinging')
+            
+            this.peerPingTimer = setInterval(() => {
+                if (this.isConnected && this.sendPing && this.peers.size > 0) {
+                    // Ping all connected peers
+                    for (const [peerId, peer] of this.peers) {
+                        if (peerId !== 'self') {
+                            const pingId = crypto.randomUUID()
+                            const pingData = {
+                                id: pingId,
+                                timestamp: Date.now(),
+                                username: this.username
+                            }
+                            
+                            this.sendPing(pingData, peerId)
+                            console.log(`Sent ping to ${peer.username || peerId}`)
+                            
+                            // Mark peer as potentially unresponsive if no recent activity
+                            const timeSinceLastSeen = Date.now() - (peer.lastSeen || 0)
+                            if (timeSinceLastSeen > 60000) { // 1 minute
+                                peer.responsive = false
+                                this.peers.set(peerId, peer)
+                                console.warn(`Peer ${peer.username || peerId} may be unresponsive (${Math.round(timeSinceLastSeen/1000)}s since last seen)`)
+                            }
+                        }
+                    }
+                }
+            }, this.peerPingInterval)
+        },
+        
+        // Stop peer pinging
+        stopPeerPinging() {
+            if (this.peerPingTimer) {
+                clearInterval(this.peerPingTimer)
+                this.peerPingTimer = null
+                console.log('Stopped peer pinging')
             }
         },
         
