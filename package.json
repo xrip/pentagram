@@ -1,0 +1,44 @@
+{
+    "name": "pentagram-foo",
+    "homepage": "https://xrip.github.io/pentagram/",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite --host --port 3000",
+        "build": "vite build",
+        "preview": "vite preview",
+        "test": "playwright test",
+        "test:ui": "playwright test --ui",
+        "test:headed": "playwright test --headed",
+        "test:debug": "playwright test --debug",
+        "test:basic": "playwright test tests/basic-functionality.spec.js",
+        "test:crypto": "playwright test tests/crypto-identity.spec.js",
+        "test:p2p": "playwright test tests/p2p-connection.spec.js",
+        "test:voice": "playwright test tests/voice-communication.spec.js",
+        "test:watch": "playwright test --watch",
+        "install-browsers": "playwright install",
+        "lint": "eslint src/",
+        "format": "prettier --write src/",
+        "predeploy": "vite build",
+        "deploy": "gh-pages -d dist"
+
+    },
+    "dependencies": {
+        "@alpinejs/persist": "^3.14.9",
+        "@noble/ed25519": "^2.0.0",
+        "alpinejs": "^3.14.9",
+        "gh-pages": "^6.3.0",
+        "uuid": "^9.0.0"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.40.0",
+        "@tailwindcss/forms": "^0.5.7",
+        "autoprefixer": "^10.4.16",
+        "eslint": "^8.55.0",
+        "postcss": "^8.4.32",
+        "prettier": "^3.1.0",
+        "tailwindcss": "^3.4.0",
+        "vite": "^5.0.0",
+        "vite-plugin-pwa": "^0.17.0"
+    }
+}

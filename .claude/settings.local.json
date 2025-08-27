@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(bun install:*)",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(npx vite:*)",
+      "Bash(python3:*)",
+      "Bash(npx playwright test:*)",
+      "Bash(npm install:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_snapshot",
+      "Bash(curl:*)",
+      "Bash(./node_modules/.bin/vite:*)",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_handle_dialog",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_close",
+      "Bash(git add .)",
+      "Bash(npm run test:p2p:*)",
+      "Bash(npm run test:basic:*)",
+      "Bash(npm run test:crypto:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
