@@ -28,6 +28,11 @@ export class RoomManager {
         // Room configuration storage for reconnection
         this.lastRoomConfig = null
         
+        // User info for announcements
+        this.username = null
+        this.identity = null
+        this.sendUserInfo = null
+        
         this.config = {
             appId: 'pentagram-foo-v1',
             
@@ -39,6 +44,9 @@ export class RoomManager {
                 'wss://tracker.files.fm:7073/announce',
                 'wss://tracker.btorrent.xyz'
             ],
+            
+            // Connect to multiple trackers simultaneously for better peer discovery
+            relayRedundancy: 3, // Use 3 trackers simultaneously
             
             // WebRTC configuration
             rtcConfig: {
@@ -446,6 +454,14 @@ export class RoomManager {
         this.onReconnectedCallback = callback
     }
     
+    // Set user info for announcements
+    setUserInfo(username, identity, sendUserInfo) {
+        this.username = username
+        this.identity = identity
+        this.sendUserInfo = sendUserInfo
+        console.log('Room manager user info set:', { username, hasIdentity: !!identity, hasSendUserInfo: !!sendUserInfo })
+    }
+    
     // Get self peer ID
     getSelfId() {
         return this.selfId
@@ -748,5 +764,114 @@ export class RoomManager {
         
         this.reconnectionAttempts = 0 // Reset attempts
         await this.handleConnectionLoss()
+    }
+    
+    // Force announce to all BitTorrent trackers for better peer discovery
+    async forceAnnounceToTrackers() {
+        if (!this.room) {
+            console.warn('Cannot announce: no active room')
+            return
+        }
+        
+        try {
+            // Get current relay sockets
+            const relaySockets = this.trystero.getRelaySockets()
+            console.log('Current tracker connections:', Object.keys(relaySockets))
+            
+            // Check which trackers are connected
+            const connectedTrackers = []
+            const disconnectedTrackers = []
+            
+            for (const [url, socket] of Object.entries(relaySockets)) {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    connectedTrackers.push(url)
+                } else {
+                    disconnectedTrackers.push(url)
+                }
+            }
+            
+            console.log(`Connected to ${connectedTrackers.length} trackers:`, connectedTrackers)
+            if (disconnectedTrackers.length > 0) {
+                console.warn(`Disconnected from ${disconnectedTrackers.length} trackers:`, disconnectedTrackers)
+            }
+            
+            // Force peer discovery by triggering room actions
+            if (this.sendUserInfo && this.identity && this.username) {
+                console.log('Broadcasting presence to trigger peer discovery...')
+                this.sendUserInfo({
+                    username: this.username,
+                    publicKey: this.identity.publicKey,
+                    joinedAt: Date.now(),
+                    announcement: true // Flag to indicate this is an announcement
+                })
+            }
+            
+            return {
+                connectedTrackers: connectedTrackers.length,
+                disconnectedTrackers: disconnectedTrackers.length,
+                totalTrackers: Object.keys(relaySockets).length
+            }
+            
+        } catch (error) {
+            console.error('Failed to announce to trackers:', error)
+            return null
+        }
+    }
+    
+    // Get detailed connection status for debugging
+    getDetailedConnectionStatus() {
+        if (!this.room || !this.trystero) {
+            return {
+                room: false,
+                trackers: [],
+                peers: 0,
+                selfId: this.selfId
+            }
+        }
+        
+        try {
+            const relaySockets = this.trystero.getRelaySockets()
+            const trackerStatus = []
+            
+            for (const [url, socket] of Object.entries(relaySockets)) {
+                trackerStatus.push({
+                    url,
+                    connected: socket && socket.readyState === WebSocket.OPEN,
+                    readyState: socket ? socket.readyState : 'no-socket'
+                })
+            }
+            
+            const peers = this.getPeers()
+            let peerCount = 0
+            let peerIds = []
+            
+            if (peers && typeof peers.size === 'number') {
+                // It's a Map
+                peerCount = peers.size
+                peerIds = Array.from(peers.keys())
+            } else if (peers && typeof peers === 'object') {
+                // It might be a plain object
+                peerIds = Object.keys(peers)
+                peerCount = peerIds.length
+            }
+            
+            return {
+                room: true,
+                selfId: this.selfId,
+                trackers: trackerStatus,
+                peers: peerCount,
+                peerIds: peerIds,
+                connectedTrackers: trackerStatus.filter(t => t.connected).length,
+                totalTrackers: trackerStatus.length
+            }
+            
+        } catch (error) {
+            console.error('Failed to get detailed connection status:', error)
+            return {
+                room: true,
+                error: error.message,
+                selfId: this.selfId
+            }
+        }
     }
 }

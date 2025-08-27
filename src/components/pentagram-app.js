@@ -26,6 +26,10 @@ document.addEventListener('alpine:init', () => {
         storageManager: null,
         audioManager: null,
         
+        // Peer discovery
+        announcementTimer: null,
+        announcementInterval: 10000, // Announce every 30 seconds
+        
         // Notification system
         notification: {
             show: false,
@@ -269,6 +273,11 @@ document.addEventListener('alpine:init', () => {
                 // Setup communication actions
                 this.setupCommunicationActions(room)
                 
+                // Set user info in room manager for announcements
+                if (this.roomManager && this.sendUserInfo) {
+                    this.roomManager.setUserInfo(this.username, this.identity, this.sendUserInfo)
+                }
+                
                 // Connection successful
                 this.isConnected = true
                 this.connectionStatus = 'connected'
@@ -281,6 +290,9 @@ document.addEventListener('alpine:init', () => {
                 
                 this.showNotification(`Connected to room: ${this.roomId}`)
                 console.log('Room joined successfully')
+                
+                // Start periodic announcements to improve peer discovery
+                this.startPeriodicAnnouncements()
                 
                 return true
                 
@@ -439,6 +451,9 @@ document.addEventListener('alpine:init', () => {
             this.sendUserInfo = null
             this.sendTyping = null
             this.sendVoiceStatus = null
+            
+            // Stop periodic announcements
+            this.stopPeriodicAnnouncements()
             
             // Update URL
             window.history.replaceState({}, '', window.location.pathname)
@@ -693,6 +708,74 @@ document.addEventListener('alpine:init', () => {
                 publicKeyHex: this.cryptoManager.getPublicKeyHex(),
                 created: this.identity.created ? new Date(this.identity.created).toLocaleString() : 'Unknown'
             }
+        },
+        
+        // Start periodic announcements to improve peer discovery
+        startPeriodicAnnouncements() {
+            if (this.announcementTimer) {
+                clearInterval(this.announcementTimer)
+            }
+            
+            console.log('Starting periodic peer discovery announcements')
+            
+            this.announcementTimer = setInterval(async () => {
+                if (this.isConnected && this.roomManager) {
+                    try {
+                        // Force announce to all trackers
+                        const status = await this.roomManager.forceAnnounceToTrackers()
+                        if (status) {
+                            console.log(`Announced to ${status.connectedTrackers}/${status.totalTrackers} trackers`)
+                        }
+                        
+                        // Get detailed connection status for debugging
+                        const detailedStatus = this.roomManager.getDetailedConnectionStatus()
+                        console.log('Peer discovery status:', detailedStatus)
+                        
+                        // If we have no peers after a while, show helpful message
+                        if (detailedStatus.peers === 0 && detailedStatus.connectedTrackers > 0) {
+                            console.log('No peers found yet, but connected to trackers. Waiting for peer discovery...')
+                        }
+                        
+                    } catch (error) {
+                        console.error('Periodic announcement failed:', error)
+                    }
+                }
+            }, this.announcementInterval)
+            
+            // Also do an immediate announcement
+            if (this.roomManager && this.isConnected) {
+                setTimeout(() => {
+                    this.roomManager.forceAnnounceToTrackers()
+                }, 2000) // Wait 2 seconds after joining
+            }
+        },
+        
+        // Stop periodic announcements
+        stopPeriodicAnnouncements() {
+            if (this.announcementTimer) {
+                clearInterval(this.announcementTimer)
+                this.announcementTimer = null
+                console.log('Stopped periodic announcements')
+            }
+        },
+        
+        // Debug method to get connection status
+        getConnectionDebugInfo() {
+            if (!this.roomManager) {
+                return 'Room manager not available'
+            }
+            
+            const status = this.roomManager.getDetailedConnectionStatus()
+            console.log('=== CONNECTION DEBUG INFO ===')
+            console.log('Self ID:', status.selfId)
+            console.log('Connected to room:', status.room)
+            console.log('Peers found:', status.peers)
+            console.log('Peer IDs:', status.peerIds)
+            console.log('Tracker connections:', status.connectedTrackers + '/' + status.totalTrackers)
+            console.log('Trackers:', status.trackers)
+            console.log('===============================')
+            
+            return status
         }
     }))
 })
